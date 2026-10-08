@@ -1,0 +1,21 @@
+benchmark-oidc:
+  image: python:3.10-slim
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://vault.example.com
+  parallel:
+    matrix:
+      - TASK_ID: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  before_script:
+    - pip install -r requirements.txt
+    - mkdir -p results
+    - '[ ! -f results/macro_metrics.csv ] && echo "mode,task_id,duration_bash_ms" > results/macro_metrics.csv'
+  script:
+    - START_BASH=$(date +%s%N)
+    - python3 scripts/benchmark.py --mode oidc --task-id "$TASK_ID" --jwt "$GITLAB_OIDC_TOKEN" --role "$VAULT_OIDC_ROLE"
+    - END_BASH=$(date +%s%N)
+    - DURATION_BASH_MS=$((( END_BASH - START_BASH ) / 1000000 ))
+    - echo "OIDC,$TASK_ID,$DURATION_BASH_MS" >> results/macro_metrics.csv
+  artifacts:
+    paths:
+      - results/

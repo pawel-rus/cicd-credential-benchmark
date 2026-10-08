@@ -1,0 +1,30 @@
+benchmark-vault:
+  image: python:3.10-slim
+  parallel: 
+    matrix:
+      - TASK_ID: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  before_script:
+    - apt-get update && apt-get install -y curl jq
+    - pip install -r requirements.txt
+    # Create isolated directory for this specific strategy
+    - mkdir -p /results/$AUTH_STRATEGY
+  script:
+    - if [ -z "$VAULT_ROLE_ID" ] || [ -z "$VAULT_SECRET_ID" ]; then echo "Missing Vault credentials"; exit 1; fi
+
+    # =====================================================================
+    # MACRO-MEASUREMENT
+    # =====================================================================
+    - SYSTEM_START_TIME=$(date +%s%N)
+    
+    - VAULT_TOKEN=$(curl -s --request POST --data '{"role_id":"'"$VAULT_ROLE_ID"'","secret_id":"'"$VAULT_SECRET_ID"'"}' http://vault:8200/v1/auth/approle/login | jq -r .auth.client_token)
+    
+    - SYSTEM_END_TIME=$(date +%s%N)
+    - LATENCY_BASH_MS=$(( (SYSTEM_END_TIME - SYSTEM_START_TIME) / 1000000 ))
+    
+    # Save macro metrics to an isolated, task-specific file
+    - echo "VAULT_APPROLE,$TASK_ID,$LATENCY_BASH_MS" > /results/$AUTH_STRATEGY/macro_task_${TASK_ID}.csv
+
+    # =====================================================================
+    # MICRO-MEASUREMENT
+    # =====================================================================
+    - python3 scripts/benchmark.py --strategy vault --task-id $TASK_ID --vault-role-id "$VAULT_ROLE_ID" --vault-secret-id "$VAULT_SECRET_ID"

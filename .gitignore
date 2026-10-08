@@ -1,0 +1,9 @@
+results/*.csv
+!results/.gitkeep
+gitlab/
+gitlab-runner/
+vault/data/
+prometheus/data/
+__pycache__/
+.env
+venv/

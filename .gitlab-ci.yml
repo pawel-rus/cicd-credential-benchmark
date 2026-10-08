@@ -1,0 +1,27 @@
+variables:
+  AUTH_STRATEGY:
+    value: "STATIC_BASELINE"
+    options:
+      - "STATIC_BASELINE"
+      - "VAULT_APPROLE"
+      - "FEDERATED_OIDC"
+    description: "Select the authentication strategy for the current benchmark run"
+
+stages:
+  - execute-benchmarks
+
+run-static-baseline:
+  stage: execute-benchmarks
+  rules:
+    - if: '$AUTH_STRATEGY == "STATIC_BASELINE"'
+  trigger:
+    include: pipelines/auth-static.yml
+    strategy: depend
+
+run-vault-approle:
+  stage: execute-benchmarks
+  rules:
+    - if: '$AUTH_STRATEGY == "VAULT_APPROLE"'
+  trigger:
+    include: pipelines/auth-vault-approle.yml
+    strategy: depend

@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab
+    hostname: gitlab.local
+    ports:
+      - "8081:80"
+      - "8443:443"
+      - "2222:22"
+    volumes:
+      - ./gitlab/config:/etc/gitlab
+      - ./gitlab/logs:/var/log/gitlab
+      - ./gitlab/data:/var/opt/gitlab
+    networks:
+      - lab-net
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: gitlab-runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gitlab-runner/config:/etc/gitlab-runner
+    depends_on:
+      - gitlab
+    networks:
+      - lab-net
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: vault
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./vault/config:/vault/config
+      - ./vault/data:/vault/data
+    command: server -config=/vault/config/vault.json
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - lab-net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: cadvisor
+    ports:
+      - "8085:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - lab-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9095:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - cadvisor
+    networks:
+      - lab-net
+
+networks:
+  lab-net:
+    driver: bridge

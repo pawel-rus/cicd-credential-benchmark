@@ -1,0 +1,30 @@
+benchmark-static:
+  image: python:3.10-slim
+  parallel: 
+    matrix:
+      - TASK_ID: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  before_script:
+    - apt-get update && apt-get install -y curl jq
+    - pip install -r requirements.txt
+    # Create isolated directory for this specific strategy
+    - mkdir -p /results/$AUTH_STRATEGY
+  script:
+    - if [ -z "$STATIC_CREDENTIAL_PAYLOAD" ]; then echo "Missing STATIC_CREDENTIAL_PAYLOAD"; exit 1; fi
+
+    # =====================================================================
+    # MACRO-MEASUREMENT
+    # =====================================================================
+    - SYSTEM_START_TIME=$(date +%s%N)
+    
+    - ACQUIRED_TOKEN=$STATIC_CREDENTIAL_PAYLOAD
+    
+    - SYSTEM_END_TIME=$(date +%s%N)
+    - LATENCY_BASH_MS=$(( (SYSTEM_END_TIME - SYSTEM_START_TIME) / 1000000 ))
+    
+    # Save macro metrics to an isolated, task-specific file to prevent race conditions
+    - echo "STATIC_BASELINE,$TASK_ID,$LATENCY_BASH_MS" > /results/$AUTH_STRATEGY/macro_task_${TASK_ID}.csv
+
+    # =====================================================================
+    # MICRO-MEASUREMENT
+    # =====================================================================
+    - python3 scripts/benchmark.py --strategy static --task-id $TASK_ID --env-payload-key STATIC_CREDENTIAL_PAYLOAD
