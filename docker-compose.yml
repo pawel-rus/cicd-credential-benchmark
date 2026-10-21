@@ -64,6 +64,8 @@
   vault:
     image: hashicorp/vault:latest
     container_name: vault
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
     sysctls:
       - net.ipv4.tcp_tw_reuse=1
       - net.ipv4.ip_local_port_range=10240 65535
@@ -72,7 +74,7 @@
     volumes:
       - ./vault/config:/vault/config
       - ./vault/data:/vault/data
-    command: server -config=/vault/config/vault.json
+    command: server
     cap_add:
       - IPC_LOCK
     networks:
