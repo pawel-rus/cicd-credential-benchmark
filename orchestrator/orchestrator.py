@@ -311,6 +311,8 @@ def main():
     parser.add_argument("--project-id", default=PROJECT_ID)
     parser.add_argument("--results-dir", default=os.path.abspath("./results"))
     parser.add_argument("--branch", default=os.environ.get("GITLAB_BRANCH", "main"), help="GitLab target branch")
+    parser.add_argument("--runs", type=int, default=1, help="Number of repetitions per experiment for statistical significance")
+    parser.add_argument("--cooldown", type=int, default=3, help="Cool-down duration in seconds between pipeline runs")
 
     args = parser.parse_args()
 
@@ -324,17 +326,42 @@ def main():
     strategies = [args.strategy] if args.strategy != "all" else ALL_STRATEGIES
 
     if args.scenario in ["baseline", "all"]:
-        for strat in strategies:
-            run_experiment(gitlab, prom, strategy=strat, scenario="baseline", concurrency=1, iterations=1, results_dir=args.results_dir, branch=args.branch)
+        for run_idx in range(1, args.runs + 1):
+            for strat in strategies:
+                if args.runs > 1:
+                    print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (baseline) <<<")
+                run_experiment(gitlab, prom, strategy=strat, scenario="baseline", concurrency=1, iterations=1, results_dir=args.results_dir, branch=args.branch)
+                if args.cooldown > 0:
+                    time.sleep(args.cooldown)
 
     if args.scenario in ["high_freq", "all"]:
-        for strat in strategies:
-            run_experiment(gitlab, prom, strategy=strat, scenario="high_freq", concurrency=1, iterations=100, results_dir=args.results_dir, branch=args.branch)
+        for run_idx in range(1, args.runs + 1):
+            for strat in strategies:
+                if args.runs > 1:
+                    print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (high_freq) <<<")
+                run_experiment(gitlab, prom, strategy=strat, scenario="high_freq", concurrency=1, iterations=100, results_dir=args.results_dir, branch=args.branch)
+                if args.cooldown > 0:
+                    time.sleep(args.cooldown)
 
     if args.scenario in ["thundering_herd", "all"]:
-        for conc in args.concurrencies:
-            for strat in strategies:
-                run_experiment(gitlab, prom, strategy=strat, scenario="thundering_herd", concurrency=conc, iterations=1, results_dir=args.results_dir, branch=args.branch)
+        for run_idx in range(1, args.runs + 1):
+            for conc in args.concurrencies:
+                for strat in strategies:
+                    if args.runs > 1:
+                        print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (thundering_herd, c={conc}) <<<")
+                    run_experiment(gitlab, prom, strategy=strat, scenario="thundering_herd", concurrency=conc, iterations=1, results_dir=args.results_dir, branch=args.branch)
+                    if args.cooldown > 0:
+                        time.sleep(args.cooldown)
+
+    print("\n" + "=" * 75)
+    print("[*] All scheduled experiments completed.")
+    print("    Running merge_results.py to consolidate Master datasets...")
+    print("=" * 75)
+    try:
+        merge_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "merge_results.py")
+        subprocess.run([sys.executable, merge_script, "--results-dir", args.results_dir], check=False)
+    except Exception as e:
+        print(f"[!] Could not run merge_results automatically: {e}")
 
 if __name__ == "__main__":
     main()
