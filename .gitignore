@@ -1,9 +1,11 @@
-results/*.csv
+﻿results/*.csv
 !results/.gitkeep
 gitlab/
-gitlab-runner/
+gitlab-runner/config/.runner_system_id
+!gitlab-runner/Dockerfile
 vault/data/
 prometheus/data/
 __pycache__/
 .env
 venv/
+docs/

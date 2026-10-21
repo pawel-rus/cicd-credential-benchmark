@@ -1,30 +1,58 @@
-benchmark-vault:
-  image: python:3.10-slim
-  parallel: 
-    matrix:
-      - TASK_ID: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+# =====================================================================
+# STRATEGY 3: HASHICORP VAULT APPROLE (Static Role/Secret ID + KV Read)
+# Shell Executor - Runs directly as native processes inside the runner
+# =====================================================================
+
+.vault-approle-base:
+  variables:
+    PYTHONUNBUFFERED: "1"
   before_script:
-    - apt-get update && apt-get install -y curl jq
-    - pip install -r requirements.txt
-    # Create isolated directory for this specific strategy
-    - mkdir -p /results/$AUTH_STRATEGY
+    - 'echo "[Shell Runner] Host: $(hostname) | CPU Cores: $(nproc)"'
+    - 'if [ -f /opt/benchmarks/bench_vault_approle.py ]; then export BENCH_DIR="/opt/benchmarks"; else export BENCH_DIR="benchmarks"; fi'
+
+# ---------------------------------------------------------------------
+# 1. Baseline Scenario (N=1, Concurrency=1)
+# ---------------------------------------------------------------------
+vault-approle-baseline:
+  extends: .vault-approle-base
+  rules:
+    - if: '$SCENARIO == "baseline" || $SCENARIO == null || $SCENARIO == ""'
   script:
-    - if [ -z "$VAULT_ROLE_ID" ] || [ -z "$VAULT_SECRET_ID" ]; then echo "Missing Vault credentials"; exit 1; fi
+    - 'python3 "$BENCH_DIR/bench_vault_approle.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "baseline" --concurrency 1 --iterations ${ITERATIONS:-1} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
-    # =====================================================================
-    # MACRO-MEASUREMENT
-    # =====================================================================
-    - SYSTEM_START_TIME=$(date +%s%N)
-    
-    - VAULT_TOKEN=$(curl -s --request POST --data '{"role_id":"'"$VAULT_ROLE_ID"'","secret_id":"'"$VAULT_SECRET_ID"'"}' http://vault:8200/v1/auth/approle/login | jq -r .auth.client_token)
-    
-    - SYSTEM_END_TIME=$(date +%s%N)
-    - LATENCY_BASH_MS=$(( (SYSTEM_END_TIME - SYSTEM_START_TIME) / 1000000 ))
-    
-    # Save macro metrics to an isolated, task-specific file
-    - echo "VAULT_APPROLE,$TASK_ID,$LATENCY_BASH_MS" > /results/$AUTH_STRATEGY/macro_task_${TASK_ID}.csv
+# ---------------------------------------------------------------------
+# 2. High-Frequency Scenario (N=100 in loop inside single job)
+# ---------------------------------------------------------------------
+vault-approle-high-frequency:
+  extends: .vault-approle-base
+  rules:
+    - if: '$SCENARIO == "high_freq"'
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_approle.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "high_freq" --concurrency 1 --iterations ${ITERATIONS:-100} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
-    # =====================================================================
-    # MICRO-MEASUREMENT
-    # =====================================================================
-    - python3 scripts/benchmark.py --strategy vault --task-id $TASK_ID --vault-role-id "$VAULT_ROLE_ID" --vault-secret-id "$VAULT_SECRET_ID"
+# ---------------------------------------------------------------------
+# 3. Thundering Herd Scenario (Concurrency 10 / 25 / 50)
+# ---------------------------------------------------------------------
+vault-approle-thundering-herd-10:
+  extends: .vault-approle-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "10"'
+  parallel: 10
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_approle.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 10 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+vault-approle-thundering-herd-25:
+  extends: .vault-approle-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "25"'
+  parallel: 25
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_approle.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 25 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+vault-approle-thundering-herd-50:
+  extends: .vault-approle-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "50"'
+  parallel: 50
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_approle.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 50 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'

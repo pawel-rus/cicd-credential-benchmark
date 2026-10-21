@@ -1,21 +1,61 @@
-benchmark-oidc:
-  image: python:3.10-slim
+# =====================================================================
+# STRATEGY 2: DIRECT FEDERATED OIDC / STS (AssumeRoleWithWebIdentity)
+# Shell Executor - Runs directly as native processes inside the runner
+# =====================================================================
+
+.oidc-base:
   id_tokens:
     GITLAB_OIDC_TOKEN:
-      aud: https://vault.example.com
-  parallel:
-    matrix:
-      - TASK_ID: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      aud: minio-client
+  variables:
+    PYTHONUNBUFFERED: "1"
   before_script:
-    - pip install -r requirements.txt
-    - mkdir -p results
-    - '[ ! -f results/macro_metrics.csv ] && echo "mode,task_id,duration_bash_ms" > results/macro_metrics.csv'
+    - 'echo "[Shell Runner] Host: $(hostname) | CPU Cores: $(nproc)"'
+    - 'if [ -f /opt/benchmarks/bench_oidc.py ]; then export BENCH_DIR="/opt/benchmarks"; else export BENCH_DIR="benchmarks"; fi'
+
+# ---------------------------------------------------------------------
+# 1. Baseline Scenario (N=1, Concurrency=1)
+# ---------------------------------------------------------------------
+oidc-baseline:
+  extends: .oidc-base
+  rules:
+    - if: '$SCENARIO == "baseline" || $SCENARIO == null || $SCENARIO == ""'
   script:
-    - START_BASH=$(date +%s%N)
-    - python3 scripts/benchmark.py --mode oidc --task-id "$TASK_ID" --jwt "$GITLAB_OIDC_TOKEN" --role "$VAULT_OIDC_ROLE"
-    - END_BASH=$(date +%s%N)
-    - DURATION_BASH_MS=$((( END_BASH - START_BASH ) / 1000000 ))
-    - echo "OIDC,$TASK_ID,$DURATION_BASH_MS" >> results/macro_metrics.csv
-  artifacts:
-    paths:
-      - results/
+    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "baseline" --concurrency 1 --iterations ${ITERATIONS:-1} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+# ---------------------------------------------------------------------
+# 2. High-Frequency Scenario (N=100 in loop inside single job)
+# ---------------------------------------------------------------------
+oidc-high-frequency:
+  extends: .oidc-base
+  rules:
+    - if: '$SCENARIO == "high_freq"'
+  script:
+    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "high_freq" --concurrency 1 --iterations ${ITERATIONS:-100} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+# ---------------------------------------------------------------------
+# 3. Thundering Herd Scenario (Concurrency 10 / 25 / 50)
+# ---------------------------------------------------------------------
+oidc-thundering-herd-10:
+  extends: .oidc-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "10"'
+  parallel: 10
+  script:
+    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 10 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+oidc-thundering-herd-25:
+  extends: .oidc-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "25"'
+  parallel: 25
+  script:
+    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 25 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+oidc-thundering-herd-50:
+  extends: .oidc-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "50"'
+  parallel: 50
+  script:
+    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 50 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'

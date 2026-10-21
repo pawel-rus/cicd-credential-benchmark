@@ -1,10 +1,11 @@
-version: '3.8'
-
-services:
+﻿services:
   gitlab:
     image: gitlab/gitlab-ce:latest
     container_name: gitlab
     hostname: gitlab.local
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab'
     ports:
       - "8081:80"
       - "8443:443"
@@ -17,19 +18,55 @@ services:
       - lab-net
 
   gitlab-runner:
-    image: gitlab/gitlab-runner:latest
+    build:
+      context: ./gitlab-runner
+      dockerfile: Dockerfile
+    image: gitlab-runner-python:latest
     container_name: gitlab-runner
+    sysctls:
+      - net.ipv4.tcp_tw_reuse=1
+      - net.ipv4.ip_local_port_range=10240 65535
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gitlab-runner/config:/etc/gitlab-runner
+      - ./benchmarks:/opt/benchmarks:ro
+      - ./results:/results
     depends_on:
       - gitlab
+    networks:
+      - lab-net
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: minio
+    hostname: minio
+    sysctls:
+      - net.ipv4.tcp_tw_reuse=1
+      - net.ipv4.ip_local_port_range=10240 65535
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadminpassword"
+      # OpenID / OIDC Integration with GitLab CE for STS AssumeRoleWithWebIdentity
+      MINIO_IDENTITY_OPENID_ENABLE: "on"
+      MINIO_IDENTITY_OPENID_CONFIG_URL: "http://gitlab:80/.well-known/openid-configuration"
+      MINIO_IDENTITY_OPENID_CLIENT_ID: "minio-client"
+      MINIO_IDENTITY_OPENID_SCOPES: "openid"
+      MINIO_IDENTITY_OPENID_ROLE_POLICY: "readwrite"
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./minio/data:/data
     networks:
       - lab-net
 
   vault:
     image: hashicorp/vault:latest
     container_name: vault
+    sysctls:
+      - net.ipv4.tcp_tw_reuse=1
+      - net.ipv4.ip_local_port_range=10240 65535
     ports:
       - "8200:8200"
     volumes:
@@ -42,8 +79,12 @@ services:
       - lab-net
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
+    command:
+      - "-housekeeping_interval=250ms"
+      - "-max_housekeeping_interval=500ms"
+      - "-allow_dynamic_housekeeping=false"
     ports:
       - "8085:8080"
     volumes:
@@ -68,4 +109,5 @@ services:
 
 networks:
   lab-net:
+    name: lab-net
     driver: bridge

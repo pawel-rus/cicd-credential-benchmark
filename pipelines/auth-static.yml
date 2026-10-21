@@ -1,30 +1,58 @@
-benchmark-static:
-  image: python:3.10-slim
-  parallel: 
-    matrix:
-      - TASK_ID: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+# =====================================================================
+# STRATEGY 1: STATIC SECRETS (Baseline & Scenarios)
+# Shell Executor - Runs directly as native processes inside the runner
+# =====================================================================
+
+.static-base:
+  variables:
+    PYTHONUNBUFFERED: "1"
   before_script:
-    - apt-get update && apt-get install -y curl jq
-    - pip install -r requirements.txt
-    # Create isolated directory for this specific strategy
-    - mkdir -p /results/$AUTH_STRATEGY
+    - 'echo "[Shell Runner] Host: $(hostname) | CPU Cores: $(nproc)"'
+    - 'if [ -f /opt/benchmarks/bench_static.py ]; then export BENCH_DIR="/opt/benchmarks"; else export BENCH_DIR="benchmarks"; fi'
+
+# ---------------------------------------------------------------------
+# 1. Baseline Scenario (N=1, Concurrency=1)
+# ---------------------------------------------------------------------
+static-baseline:
+  extends: .static-base
+  rules:
+    - if: '$SCENARIO == "baseline" || $SCENARIO == null || $SCENARIO == ""'
   script:
-    - if [ -z "$STATIC_CREDENTIAL_PAYLOAD" ]; then echo "Missing STATIC_CREDENTIAL_PAYLOAD"; exit 1; fi
+    - 'python3 "$BENCH_DIR/bench_static.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "baseline" --concurrency 1 --iterations ${ITERATIONS:-1} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
-    # =====================================================================
-    # MACRO-MEASUREMENT
-    # =====================================================================
-    - SYSTEM_START_TIME=$(date +%s%N)
-    
-    - ACQUIRED_TOKEN=$STATIC_CREDENTIAL_PAYLOAD
-    
-    - SYSTEM_END_TIME=$(date +%s%N)
-    - LATENCY_BASH_MS=$(( (SYSTEM_END_TIME - SYSTEM_START_TIME) / 1000000 ))
-    
-    # Save macro metrics to an isolated, task-specific file to prevent race conditions
-    - echo "STATIC_BASELINE,$TASK_ID,$LATENCY_BASH_MS" > /results/$AUTH_STRATEGY/macro_task_${TASK_ID}.csv
+# ---------------------------------------------------------------------
+# 2. High-Frequency Scenario (N=100 in loop inside single job)
+# ---------------------------------------------------------------------
+static-high-frequency:
+  extends: .static-base
+  rules:
+    - if: '$SCENARIO == "high_freq"'
+  script:
+    - 'python3 "$BENCH_DIR/bench_static.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "high_freq" --concurrency 1 --iterations ${ITERATIONS:-100} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
-    # =====================================================================
-    # MICRO-MEASUREMENT
-    # =====================================================================
-    - python3 scripts/benchmark.py --strategy static --task-id $TASK_ID --env-payload-key STATIC_CREDENTIAL_PAYLOAD
+# ---------------------------------------------------------------------
+# 3. Thundering Herd Scenario (Concurrency 10 / 25 / 50)
+# ---------------------------------------------------------------------
+static-thundering-herd-10:
+  extends: .static-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "10"'
+  parallel: 10
+  script:
+    - 'python3 "$BENCH_DIR/bench_static.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 10 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+static-thundering-herd-25:
+  extends: .static-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "25"'
+  parallel: 25
+  script:
+    - 'python3 "$BENCH_DIR/bench_static.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 25 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+static-thundering-herd-50:
+  extends: .static-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "50"'
+  parallel: 50
+  script:
+    - 'python3 "$BENCH_DIR/bench_static.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 50 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
