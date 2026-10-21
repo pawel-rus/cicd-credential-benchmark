@@ -97,8 +97,9 @@ def run_benchmark(args):
             "DurationSeconds": str(args.duration_seconds),
             "WebIdentityToken": jwt_token,
         }
-        if args.role_arn:
-            sts_form_data["RoleArn"] = args.role_arn
+        role_arn = args.role_arn or os.environ.get("MINIO_ROLE_ARN", "arn:minio:iam:::role/1mAsqpUGox8eewepDQ1dmtwpdY8")
+        if role_arn:
+            sts_form_data["RoleArn"] = role_arn
         if args.role_session_name:
             sts_form_data["RoleSessionName"] = args.role_session_name
 
