@@ -120,6 +120,8 @@ def run_benchmark(args):
         auth_time_ms = (t_auth_end - t_auth_start) / 1_000_000.0
 
         auth_error = sts_res.error_flag or parse_error
+        if auth_error:
+            print(f"[bench_oidc] AUTH ERROR! HTTP {sts_res.status_code} | Body: {sts_res.body.decode('utf-8', errors='replace')[:300]}", file=sys.stderr)
 
         # -------------------------------------------------------------
         # STEP 2: TARGET CALL (MinIO S3 ListBuckets with Session Token)
