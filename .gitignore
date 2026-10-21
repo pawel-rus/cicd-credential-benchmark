@@ -1,4 +1,6 @@
-﻿results/*.csv
+﻿results/raw_macro/
+results/raw_micro/
+results/plots/*.png
 !results/.gitkeep
 gitlab/
 gitlab-runner/config/.runner_system_id
@@ -10,3 +12,4 @@ __pycache__/
 venv/
 docs/
 minio/
+gitlab-runner/config/config.toml
