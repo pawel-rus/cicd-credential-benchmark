@@ -50,7 +50,7 @@ class GitLabController:
         self.headers = {"PRIVATE-TOKEN": token} if token else {}
 
     def trigger_pipeline(self, strategy: str, scenario: str, concurrency: int,
-                         iterations: int, test_run_id: str, branch: str = "main") -> int:
+                         iterations: int, test_run_id: str, branch: str = "main", max_retries: int = 3) -> int:
         url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipeline"
         variables = [
             {"key": "AUTH_STRATEGY", "value": strategy},
@@ -61,23 +61,30 @@ class GitLabController:
         ]
         payload = {"ref": branch, "variables": variables}
 
-        res = requests.post(url, headers=self.headers, json=payload, timeout=15)
-        res.raise_for_status()
-        return res.json()["id"]
+        for attempt in range(1, max_retries + 1):
+            try:
+                res = requests.post(url, headers=self.headers, json=payload, timeout=60)
+                res.raise_for_status()
+                return res.json()["id"]
+            except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
+                if attempt == max_retries:
+                    raise
+                print(f"    [!] Warning: Pipeline dispatch attempt {attempt} failed ({e}). Retrying in 5s...", file=sys.stderr)
+                time.sleep(5)
 
     def wait_for_pipeline(self, pipeline_id: int, poll_interval: float = 3.0) -> tuple[str, int]:
         url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipelines/{pipeline_id}"
         jobs_url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipelines/{pipeline_id}/jobs"
 
         while True:
-            res = requests.get(url, headers=self.headers, timeout=15)
+            res = requests.get(url, headers=self.headers, timeout=60)
             res.raise_for_status()
             status = res.json().get("status", "unknown")
 
             if status in ["success", "failed", "canceled", "skipped"]:
                 failed_count = 0
                 try:
-                    jobs_res = requests.get(jobs_url, headers=self.headers, timeout=15)
+                    jobs_res = requests.get(jobs_url, headers=self.headers, timeout=60)
                     if jobs_res.status_code == 200:
                         for job in jobs_res.json():
                             if job.get("status") == "failed":
@@ -220,7 +227,7 @@ def save_macro_metric(file_path: str, record: dict):
 # =====================================================================
 def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
                    strategy: str, scenario: str, concurrency: int,
-                   iterations: int, results_dir: str, branch: str = "main"):
+                   iterations: int, results_dir: str, branch: str = "main", invalidate_cache: bool = True):
     timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     strategy_slug_map = {
         "STATIC_BASELINE": "static",
@@ -237,7 +244,7 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
     print(f"    Strategy: {strategy} | Scenario: {scenario} | Concurrency: {concurrency} | Iterations: {iterations}")
     print(f"=======================================================================")
 
-    if scenario in ["baseline", "high_freq"]:
+    if invalidate_cache and scenario in ["baseline", "high_freq"]:
         invalidate_jwks_cache(strategy)
 
     t_start = time.time()
@@ -326,30 +333,31 @@ def main():
     strategies = [args.strategy] if args.strategy != "all" else ALL_STRATEGIES
 
     if args.scenario in ["baseline", "all"]:
-        for run_idx in range(1, args.runs + 1):
-            for strat in strategies:
+        for strat in strategies:
+            for run_idx in range(1, args.runs + 1):
                 if args.runs > 1:
                     print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (baseline) <<<")
-                run_experiment(gitlab, prom, strategy=strat, scenario="baseline", concurrency=1, iterations=1, results_dir=args.results_dir, branch=args.branch)
+                # Only invalidate cache on the first run of the strategy (Cold Start), subsequent runs measure Steady State
+                run_experiment(gitlab, prom, strategy=strat, scenario="baseline", concurrency=1, iterations=1, results_dir=args.results_dir, branch=args.branch, invalidate_cache=(run_idx == 1))
                 if args.cooldown > 0:
                     time.sleep(args.cooldown)
 
     if args.scenario in ["high_freq", "all"]:
-        for run_idx in range(1, args.runs + 1):
-            for strat in strategies:
+        for strat in strategies:
+            for run_idx in range(1, args.runs + 1):
                 if args.runs > 1:
                     print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (high_freq) <<<")
-                run_experiment(gitlab, prom, strategy=strat, scenario="high_freq", concurrency=1, iterations=100, results_dir=args.results_dir, branch=args.branch)
+                run_experiment(gitlab, prom, strategy=strat, scenario="high_freq", concurrency=1, iterations=100, results_dir=args.results_dir, branch=args.branch, invalidate_cache=(run_idx == 1))
                 if args.cooldown > 0:
                     time.sleep(args.cooldown)
 
     if args.scenario in ["thundering_herd", "all"]:
-        for run_idx in range(1, args.runs + 1):
-            for conc in args.concurrencies:
-                for strat in strategies:
+        for conc in args.concurrencies:
+            for strat in strategies:
+                for run_idx in range(1, args.runs + 1):
                     if args.runs > 1:
                         print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (thundering_herd, c={conc}) <<<")
-                    run_experiment(gitlab, prom, strategy=strat, scenario="thundering_herd", concurrency=conc, iterations=1, results_dir=args.results_dir, branch=args.branch)
+                    run_experiment(gitlab, prom, strategy=strat, scenario="thundering_herd", concurrency=conc, iterations=1, results_dir=args.results_dir, branch=args.branch, invalidate_cache=(run_idx == 1))
                     if args.cooldown > 0:
                         time.sleep(args.cooldown)
 
