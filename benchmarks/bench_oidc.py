@@ -93,7 +93,7 @@ def run_benchmark(args):
 
         sts_form_data = {
             "Action": "AssumeRoleWithWebIdentity",
-            "Version": "2011-06-12",
+            "Version": "2011-06-15",
             "DurationSeconds": str(args.duration_seconds),
             "WebIdentityToken": jwt_token,
         }
