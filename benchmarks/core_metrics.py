@@ -42,6 +42,7 @@ class TargetCallResult:
     http_status: int
     bytes_sent: int
     bytes_received: int
+    requests_count: int
     error_flag: bool
 
 @dataclass
@@ -62,9 +63,13 @@ class MicroMetricRecord:
     cpu_user_ms: float
     cpu_sys_ms: float
     ram_peak_kb: int
+    auth_heap_kb: float
     bytes_sent: int
     bytes_received: int
     http_status: int
+    auth_http_requests: int
+    target_http_requests: int
+    total_http_requests: int
     is_cold_start: bool
     error_flag: bool
 
@@ -294,6 +299,7 @@ def execute_minio_s3_call(endpoint: str, access_key: str, secret_key: str,
         http_status=res.status_code,
         bytes_sent=res.bytes_sent,
         bytes_received=res.bytes_received,
+        requests_count=1,
         error_flag=(res.status_code != 200 or res.error_flag),
     )
 
@@ -313,9 +319,13 @@ def resolve_metric_filepath(results_base_dir: str, scenario: str, strategy: str,
     strategy_slug_map = {
         "STATIC_BASELINE": "static",
         "FEDERATED_OIDC": "oidc",
+        "VAULT_STATIC_KV": "vault_kv",
+        "VAULT_KV": "vault_kv",
+        "VAULT_STATIC": "vault_kv",
+        "VAULT_DYNAMIC_STS": "vault_dynamic",
+        "VAULT_DYNAMIC": "vault_dynamic",
+        "VAULT_OIDC": "vault_dynamic",
         "VAULT_APPROLE": "vault_approle",
-        "VAULT_OIDC": "vault_oidc",
-        "VAULT_DYNAMIC": "vault_oidc",
     }
     strategy_dir = strategy_slug_map.get(strategy.upper(), strategy.lower())
 

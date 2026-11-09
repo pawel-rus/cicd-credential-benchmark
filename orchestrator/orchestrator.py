@@ -38,7 +38,7 @@ PROJECT_ID = os.environ.get("GITLAB_PROJECT_ID", "1")
 GITLAB_API_TOKEN = os.environ.get("GITLAB_API_TOKEN", "")
 VAULT_TOKEN = os.environ.get("VAULT_TOKEN", "root")
 
-ALL_STRATEGIES = ["STATIC_BASELINE", "FEDERATED_OIDC", "VAULT_APPROLE", "VAULT_OIDC"]
+ALL_STRATEGIES = ["STATIC_BASELINE", "FEDERATED_OIDC", "VAULT_STATIC_KV", "VAULT_DYNAMIC_STS"]
 
 # =====================================================================
 # GITLAB REST API CONTROLLER
@@ -50,7 +50,7 @@ class GitLabController:
         self.headers = {"PRIVATE-TOKEN": token} if token else {}
 
     def trigger_pipeline(self, strategy: str, scenario: str, concurrency: int,
-                         iterations: int, test_run_id: str, branch: str = "main", max_retries: int = 3) -> int:
+                         iterations: int, test_run_id: str, is_cold_start: bool = False, branch: str = "main", max_retries: int = 3) -> int:
         url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipeline"
         variables = [
             {"key": "AUTH_STRATEGY", "value": strategy},
@@ -58,6 +58,7 @@ class GitLabController:
             {"key": "CONCURRENCY_LEVEL", "value": str(concurrency)},
             {"key": "ITERATIONS", "value": str(iterations)},
             {"key": "TEST_RUN_ID", "value": test_run_id},
+            {"key": "IS_COLD_START", "value": "true" if is_cold_start else "false"},
         ]
         payload = {"ref": branch, "variables": variables}
 
@@ -197,7 +198,7 @@ def invalidate_jwks_cache(strategy: str, vault_url: str = VAULT_URL, vault_token
         except Exception as e:
             print(f"[Orchestrator] Warning: Failed to restart MinIO: {e}", file=sys.stderr)
 
-    elif strategy in ["VAULT_OIDC", "VAULT_DYNAMIC"]:
+    elif strategy in ["VAULT_STATIC_KV", "VAULT_DYNAMIC_STS", "VAULT_OIDC", "VAULT_DYNAMIC", "VAULT_KV", "VAULT_STATIC"]:
         print("[Orchestrator] Invalidating Vault JWKS cache via API configuration reload...")
         try:
             url = f"{vault_url}/v1/auth/jwt/config"
@@ -232,9 +233,13 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
     strategy_slug_map = {
         "STATIC_BASELINE": "static",
         "FEDERATED_OIDC": "oidc",
+        "VAULT_STATIC_KV": "vault_kv",
+        "VAULT_KV": "vault_kv",
+        "VAULT_STATIC": "vault_kv",
+        "VAULT_DYNAMIC_STS": "vault_dynamic",
+        "VAULT_DYNAMIC": "vault_dynamic",
+        "VAULT_OIDC": "vault_dynamic",
         "VAULT_APPROLE": "vault_approle",
-        "VAULT_OIDC": "vault_oidc",
-        "VAULT_DYNAMIC": "vault_oidc",
     }
     strategy_slug = strategy_slug_map.get(strategy.upper(), strategy.lower())
     test_run_id = f"run_{strategy_slug}_{scenario}_c{concurrency}_{timestamp_str}"
@@ -255,6 +260,7 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
             concurrency=concurrency,
             iterations=iterations,
             test_run_id=test_run_id,
+            is_cold_start=invalidate_cache,
             branch=branch,
         )
         print(f"    -> Pipeline #{pipeline_id} dispatched. Awaiting completion...")
@@ -311,7 +317,7 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
 def main():
     parser = argparse.ArgumentParser(description="CI/CD Credential Benchmark Orchestrator (v2.3)")
     parser.add_argument("--scenario", default="baseline", choices=["baseline", "high_freq", "thundering_herd", "all"])
-    parser.add_argument("--strategy", default="all", choices=ALL_STRATEGIES + ["all"])
+    parser.add_argument("--strategy", default="all", choices=ALL_STRATEGIES + ["all", "VAULT_APPROLE", "VAULT_OIDC", "VAULT_DYNAMIC", "VAULT_KV", "VAULT_STATIC"])
     parser.add_argument("--concurrencies", nargs="+", type=int, default=[10, 25, 50], help="Concurrency levels for thundering herd")
     parser.add_argument("--gitlab-url", default=GITLAB_URL)
     parser.add_argument("--prometheus-url", default=PROMETHEUS_URL)

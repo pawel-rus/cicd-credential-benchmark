@@ -11,6 +11,7 @@ import sys
 import time
 import argparse
 import resource
+import tracemalloc
 import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -83,12 +84,12 @@ def run_benchmark(args):
         timestamp = datetime.now(timezone.utc).isoformat()
         usage_start = resource.getrusage(resource.RUSAGE_SELF)
 
-        # First call triggers remote JWKS fetch on MinIO STS (Cold Start)
-        is_cold_start = (iteration == 1)
+        is_cold_start = (os.environ.get("IS_COLD_START", "false").lower() in ["true", "1"]) and (iteration == 1)
 
         # -------------------------------------------------------------
         # STEP 1: STS AssumeRoleWithWebIdentity (OIDC Token Exchange)
         # -------------------------------------------------------------
+        tracemalloc.start()
         t_auth_start = time.perf_counter_ns()
 
         sts_form_data = {
@@ -108,6 +109,7 @@ def run_benchmark(args):
             "Content-Type": "application/x-www-form-urlencoded",
         }
 
+        auth_http_requests = 0
         sts_res = execute_raw_http_request(
             method="POST",
             url=args.sts_endpoint,
@@ -115,10 +117,14 @@ def run_benchmark(args):
             body=sts_body,
             timeout=10.0,
         )
+        auth_http_requests += 1
 
         access_key, secret_key, session_token, parse_error = parse_sts_credentials(sts_res.body)
         t_auth_end = time.perf_counter_ns()
         auth_time_ms = (t_auth_end - t_auth_start) / 1_000_000.0
+        _, peak_heap_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        auth_heap_kb = round(peak_heap_bytes / 1024.0, 3)
 
         auth_error = sts_res.error_flag or parse_error
         if auth_error:
@@ -147,6 +153,9 @@ def run_benchmark(args):
         total_bytes_received = sts_res.bytes_received + target_res.bytes_received
         final_error = auth_error or target_res.error_flag
 
+        target_http_requests = target_res.requests_count
+        total_http_requests = auth_http_requests + target_http_requests
+
         record = MicroMetricRecord(
             timestamp=timestamp,
             test_run_id=args.test_run_id,
@@ -164,9 +173,13 @@ def run_benchmark(args):
             cpu_user_ms=round(cpu_user_ms, 4),
             cpu_sys_ms=round(cpu_sys_ms, 4),
             ram_peak_kb=ram_peak_kb,
+            auth_heap_kb=auth_heap_kb,
             bytes_sent=total_bytes_sent,
             bytes_received=total_bytes_received,
             http_status=target_res.http_status if not auth_error else sts_res.status_code,
+            auth_http_requests=auth_http_requests,
+            target_http_requests=target_http_requests,
+            total_http_requests=total_http_requests,
             is_cold_start=is_cold_start,
             error_flag=final_error,
         )

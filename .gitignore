@@ -1,6 +1,7 @@
 ﻿results/raw_macro/
 results/raw_micro/
-results/plots/*.png
+results/master
+results/plots/
 !results/.gitkeep
 gitlab/
 gitlab-runner/config/.runner_system_id

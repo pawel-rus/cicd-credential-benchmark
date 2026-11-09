@@ -11,6 +11,7 @@ import sys
 import time
 import argparse
 import resource
+import tracemalloc
 from datetime import datetime, timezone
 
 from core_metrics import (
@@ -52,6 +53,7 @@ def run_benchmark(args):
         # -------------------------------------------------------------
         # STEP 1: AUTHENTICATION / CREDENTIAL RETRIEVAL (RAM / ENV)
         # -------------------------------------------------------------
+        tracemalloc.start()
         t_auth_start = time.perf_counter_ns()
         access_key = os.environ.get(access_key_name, "")
         if not access_key and access_key_name != "AWS_ACCESS_KEY_ID":
@@ -63,6 +65,9 @@ def run_benchmark(args):
 
         t_auth_end = time.perf_counter_ns()
         auth_time_ms = (t_auth_end - t_auth_start) / 1_000_000.0
+        _, peak_heap_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        auth_heap_kb = round(peak_heap_bytes / 1024.0, 3)
 
         error_flag = False
         if not access_key or not secret_key:
@@ -89,6 +94,10 @@ def run_benchmark(args):
         total_op_time_ms = auth_time_ms + target_res.latency_ms
         final_error = error_flag or target_res.error_flag
 
+        auth_http_requests = 0
+        target_http_requests = target_res.requests_count
+        total_http_requests = auth_http_requests + target_http_requests
+
         record = MicroMetricRecord(
             timestamp=timestamp,
             test_run_id=args.test_run_id,
@@ -106,10 +115,14 @@ def run_benchmark(args):
             cpu_user_ms=round(cpu_user_ms, 4),
             cpu_sys_ms=round(cpu_sys_ms, 4),
             ram_peak_kb=ram_peak_kb,
+            auth_heap_kb=auth_heap_kb,
             bytes_sent=target_res.bytes_sent,
             bytes_received=target_res.bytes_received,
             http_status=target_res.http_status,
-            is_cold_start=False,
+            auth_http_requests=auth_http_requests,
+            target_http_requests=target_http_requests,
+            total_http_requests=total_http_requests,
+            is_cold_start=(os.environ.get("IS_COLD_START", "false").lower() in ["true", "1"]) and (iteration == 1),
             error_flag=final_error,
         )
 

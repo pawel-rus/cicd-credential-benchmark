@@ -6,6 +6,11 @@
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url 'http://gitlab'
+        puma['worker_processes'] = 2
+        puma['min_threads'] = 1
+        puma['max_threads'] = 4
+        sidekiq['max_concurrency'] = 5
+        prometheus_monitoring['enable'] = false
     ports:
       - "8081:80"
       - "8443:443"
@@ -84,8 +89,8 @@
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     command:
-      - "-housekeeping_interval=250ms"
-      - "-max_housekeeping_interval=500ms"
+      - "-housekeeping_interval=1s"
+      - "-max_housekeeping_interval=2s"
       - "-allow_dynamic_housekeeping=false"
     ports:
       - "8085:8080"

@@ -1,5 +1,5 @@
 # =====================================================================
-# STRATEGY 4: HASHICORP VAULT OIDC (GitLab JWT Login + Dynamic STS Secrets)
+# STRATEGY 4: HASHICORP VAULT DYNAMIC STS (GitLab JWT Login + Dynamic STS Secrets)
 # Shell Executor - Runs directly as native processes inside the runner
 # =====================================================================
 
@@ -21,7 +21,7 @@ vault-oidc-baseline:
   rules:
     - if: '$SCENARIO == "baseline" || $SCENARIO == null || $SCENARIO == ""'
   script:
-    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "baseline" --concurrency 1 --iterations ${ITERATIONS:-1} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --strategy "${AUTH_STRATEGY:-VAULT_DYNAMIC_STS}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "baseline" --concurrency 1 --iterations ${ITERATIONS:-1} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 # ---------------------------------------------------------------------
 # 2. High-Frequency Scenario (N=100 in loop inside single job)
@@ -31,7 +31,7 @@ vault-oidc-high-frequency:
   rules:
     - if: '$SCENARIO == "high_freq"'
   script:
-    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "high_freq" --concurrency 1 --iterations ${ITERATIONS:-100} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --strategy "${AUTH_STRATEGY:-VAULT_DYNAMIC_STS}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "high_freq" --concurrency 1 --iterations ${ITERATIONS:-100} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 # ---------------------------------------------------------------------
 # 3. Thundering Herd Scenario (Concurrency 10 / 25 / 50)
@@ -42,7 +42,7 @@ vault-oidc-thundering-herd-10:
     - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "10"'
   parallel: 10
   script:
-    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 10 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --strategy "${AUTH_STRATEGY:-VAULT_DYNAMIC_STS}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 10 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 vault-oidc-thundering-herd-25:
   extends: .vault-oidc-base
@@ -50,7 +50,7 @@ vault-oidc-thundering-herd-25:
     - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "25"'
   parallel: 25
   script:
-    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 25 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --strategy "${AUTH_STRATEGY:-VAULT_DYNAMIC_STS}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 25 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 vault-oidc-thundering-herd-50:
   extends: .vault-oidc-base
@@ -58,4 +58,4 @@ vault-oidc-thundering-herd-50:
     - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "50"'
   parallel: 50
   script:
-    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 50 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+    - 'python3 "$BENCH_DIR/bench_vault_oidc.py" --strategy "${AUTH_STRATEGY:-VAULT_DYNAMIC_STS}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 50 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'

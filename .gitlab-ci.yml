@@ -1,9 +1,11 @@
-﻿variables:
+variables:
   AUTH_STRATEGY:
     value: "STATIC_BASELINE"
     options:
       - "STATIC_BASELINE"
       - "FEDERATED_OIDC"
+      - "VAULT_STATIC_KV"
+      - "VAULT_DYNAMIC_STS"
       - "VAULT_APPROLE"
       - "VAULT_OIDC"
     description: "Authentication strategy selection for current benchmark run"
@@ -53,21 +55,21 @@ run-federated-oidc:
       yaml_variables: true
       pipeline_variables: true
 
-run-vault-approle:
+run-vault-kv:
   stage: execute-benchmarks
   rules:
-    - if: '$AUTH_STRATEGY == "VAULT_APPROLE"'
+    - if: '$AUTH_STRATEGY == "VAULT_STATIC_KV" || $AUTH_STRATEGY == "VAULT_KV" || $AUTH_STRATEGY == "VAULT_APPROLE"'
   trigger:
-    include: pipelines/auth-vault-approle.yml
+    include: pipelines/auth-vault-kv.yml
     strategy: depend
     forward:
       yaml_variables: true
       pipeline_variables: true
 
-run-vault-oidc:
+run-vault-dynamic:
   stage: execute-benchmarks
   rules:
-    - if: '$AUTH_STRATEGY == "VAULT_OIDC" || $AUTH_STRATEGY == "VAULT_DYNAMIC"'
+    - if: '$AUTH_STRATEGY == "VAULT_DYNAMIC_STS" || $AUTH_STRATEGY == "VAULT_DYNAMIC" || $AUTH_STRATEGY == "VAULT_OIDC"'
   trigger:
     include: pipelines/auth-vault-oidc.yml
     strategy: depend

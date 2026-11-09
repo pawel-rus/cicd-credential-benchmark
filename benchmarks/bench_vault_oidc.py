@@ -13,6 +13,7 @@ import time
 import json
 import argparse
 import resource
+import tracemalloc
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -53,10 +54,11 @@ def run_benchmark(args):
     job_id = args.job_id or os.environ.get("CI_JOB_ID", "0")
     results_dir = args.results_dir
 
+    strat = getattr(args, "strategy", "VAULT_DYNAMIC_STS") or "VAULT_DYNAMIC_STS"
     csv_path = resolve_metric_filepath(
         results_base_dir=results_dir,
         scenario=args.scenario,
-        strategy="VAULT_OIDC",
+        strategy=strat,
         concurrency_level=args.concurrency,
         pipeline_id=pipeline_id,
         job_id=job_id,
@@ -89,10 +91,13 @@ def run_benchmark(args):
         # -------------------------------------------------------------
         # STEP 1A: VAULT OIDC/JWT AUTHENTICATION (POST /v1/auth/jwt/login)
         # -------------------------------------------------------------
+        auth_http_requests = 0
+        tracemalloc.start()
         t_login_start = time.perf_counter_ns()
         login_payload = json.dumps({"role": args.vault_jwt_role, "jwt": jwt_token}).encode("utf-8")
         login_headers = {"Content-Type": "application/json"}
         login_res = execute_raw_http_request("POST", login_endpoint, headers=login_headers, body=login_payload)
+        auth_http_requests += 1
         t_login_end = time.perf_counter_ns()
         auth_login_ms = (t_login_end - t_login_start) / 1_000_000.0
 
@@ -115,6 +120,7 @@ def run_benchmark(args):
         t_gen_start = time.perf_counter_ns()
         secret_headers = {"X-Vault-Token": client_token}
         secret_res = execute_raw_http_request("GET", dynamic_endpoint, headers=secret_headers)
+        auth_http_requests += 1
         t_gen_end = time.perf_counter_ns()
         secret_gen_ms = (t_gen_end - t_gen_start) / 1_000_000.0
 
@@ -128,6 +134,9 @@ def run_benchmark(args):
 
         auth_time_ms = auth_login_ms + secret_gen_ms
         auth_error = login_error or secret_res.error_flag or parse_error
+        _, peak_heap_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        auth_heap_kb = round(peak_heap_bytes / 1024.0, 3)
 
         # -------------------------------------------------------------
         # STEP 2: TARGET CALL (MinIO S3 ListBuckets with Dynamic Keys)
@@ -152,10 +161,13 @@ def run_benchmark(args):
         total_bytes_received = login_res.bytes_received + secret_res.bytes_received + target_res.bytes_received
         final_error = auth_error or target_res.error_flag
 
+        target_http_requests = target_res.requests_count
+        total_http_requests = auth_http_requests + target_http_requests
+
         record = MicroMetricRecord(
             timestamp=timestamp,
             test_run_id=args.test_run_id,
-            strategy="VAULT_OIDC",
+            strategy=strat,
             scenario=args.scenario,
             concurrency_level=args.concurrency,
             pipeline_id=pipeline_id,
@@ -169,10 +181,14 @@ def run_benchmark(args):
             cpu_user_ms=round(cpu_user_ms, 4),
             cpu_sys_ms=round(cpu_sys_ms, 4),
             ram_peak_kb=ram_peak_kb,
+            auth_heap_kb=auth_heap_kb,
             bytes_sent=total_bytes_sent,
             bytes_received=total_bytes_received,
             http_status=target_res.http_status if not auth_error else (secret_res.status_code or login_res.status_code),
-            is_cold_start=False,
+            auth_http_requests=auth_http_requests,
+            target_http_requests=target_http_requests,
+            total_http_requests=total_http_requests,
+            is_cold_start=(os.environ.get("IS_COLD_START", "false").lower() in ["true", "1"]) and (iteration == 1),
             error_flag=final_error,
         )
 
@@ -181,7 +197,8 @@ def run_benchmark(args):
     print(f"[bench_vault_oidc] Completed {args.iterations} iteration(s) successfully.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Micro-benchmark: HashiCorp Vault OIDC (JWT + STS)")
+    parser = argparse.ArgumentParser(description="Micro-benchmark: HashiCorp Vault Dynamic STS (JWT + STS)")
+    parser.add_argument("--strategy", default="VAULT_DYNAMIC_STS", help="Strategy identifier (VAULT_DYNAMIC_STS or VAULT_OIDC)")
     parser.add_argument("--test-run-id", default="manual_run")
     parser.add_argument("--scenario", default="baseline", choices=["baseline", "high_freq", "thundering_herd", "real_world"])
     parser.add_argument("--concurrency", type=int, default=1)

@@ -29,12 +29,31 @@ def merge_csv_directory(source_dir: str, target_file: str, id_column: str = "tes
         print(f"[merge_results] No CSV files located under {source_dir}")
         return 0
 
-    master_headers = None
+    # Scan all files to collect the complete union of headers (schema evolution)
+    all_headers = []
+    for fp in sorted(csv_files):
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                r = csv.reader(f)
+                h = next(r, None)
+                if h:
+                    for col in h:
+                        if col not in all_headers:
+                            all_headers.append(col)
+        except Exception:
+            pass
+
+    for req_col in ["auth_http_requests", "target_http_requests", "total_http_requests"]:
+        if req_col not in all_headers:
+            all_headers.append(req_col)
+
+    master_headers = all_headers
     total_records = 0
     seen_rows = set()
 
     with open(target_file, "w", newline="", encoding="utf-8") as out_f:
-        writer = None
+        writer = csv.DictWriter(out_f, fieldnames=master_headers)
+        writer.writeheader()
 
         for file_path in sorted(csv_files):
             try:
@@ -43,12 +62,21 @@ def merge_csv_directory(source_dir: str, target_file: str, id_column: str = "tes
                     if not reader.fieldnames:
                         continue
 
-                    if master_headers is None:
-                        master_headers = reader.fieldnames
-                        writer = csv.DictWriter(out_f, fieldnames=master_headers)
-                        writer.writeheader()
-
                     for row in reader:
+                        # Backfill HTTP request counts if missing from older runs
+                        if "auth_http_requests" not in row or not row.get("auth_http_requests"):
+                            strat = row.get("strategy", "")
+                            if strat == "STATIC_BASELINE" or (strat.startswith("STATIC") and "VAULT" not in strat):
+                                row["auth_http_requests"] = "0"
+                            elif "OIDC" in strat and "VAULT" not in strat:
+                                row["auth_http_requests"] = "1"
+                            else:
+                                row["auth_http_requests"] = "2"
+                        if "target_http_requests" not in row or not row.get("target_http_requests"):
+                            row["target_http_requests"] = "1"
+                        if "total_http_requests" not in row or not row.get("total_http_requests"):
+                            row["total_http_requests"] = str(int(row["auth_http_requests"]) + int(row["target_http_requests"]))
+
                         # Construct a unique fingerprint for deduplication
                         row_key = tuple(row.get(h, "") for h in master_headers)
                         if row_key not in seen_rows:

@@ -13,6 +13,7 @@ import time
 import json
 import argparse
 import resource
+import tracemalloc
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -87,10 +88,13 @@ def run_benchmark(args):
         # -------------------------------------------------------------
         # STEP 1A: APPROLE LOGIN (POST /v1/auth/approle/login)
         # -------------------------------------------------------------
+        auth_http_requests = 0
+        tracemalloc.start()
         t_login_start = time.perf_counter_ns()
         login_payload = json.dumps({"role_id": role_id, "secret_id": secret_id}).encode("utf-8")
         login_headers = {"Content-Type": "application/json"}
         login_res = execute_raw_http_request("POST", login_endpoint, headers=login_headers, body=login_payload)
+        auth_http_requests += 1
         t_login_end = time.perf_counter_ns()
         auth_login_ms = (t_login_end - t_login_start) / 1_000_000.0
 
@@ -113,6 +117,7 @@ def run_benchmark(args):
         t_gen_start = time.perf_counter_ns()
         secret_headers = {"X-Vault-Token": client_token}
         secret_res = execute_raw_http_request("GET", dynamic_endpoint, headers=secret_headers)
+        auth_http_requests += 1
         t_gen_end = time.perf_counter_ns()
         secret_gen_ms = (t_gen_end - t_gen_start) / 1_000_000.0
 
@@ -126,6 +131,9 @@ def run_benchmark(args):
 
         auth_time_ms = auth_login_ms + secret_gen_ms
         auth_error = login_error or secret_res.error_flag or parse_error
+        _, peak_heap_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        auth_heap_kb = round(peak_heap_bytes / 1024.0, 3)
 
         # -------------------------------------------------------------
         # STEP 2: TARGET CALL (MinIO S3 ListBuckets with Dynamic Keys)
@@ -150,6 +158,9 @@ def run_benchmark(args):
         total_bytes_received = login_res.bytes_received + secret_res.bytes_received + target_res.bytes_received
         final_error = auth_error or target_res.error_flag
 
+        target_http_requests = target_res.requests_count
+        total_http_requests = auth_http_requests + target_http_requests
+
         record = MicroMetricRecord(
             timestamp=timestamp,
             test_run_id=args.test_run_id,
@@ -167,10 +178,14 @@ def run_benchmark(args):
             cpu_user_ms=round(cpu_user_ms, 4),
             cpu_sys_ms=round(cpu_sys_ms, 4),
             ram_peak_kb=ram_peak_kb,
+            auth_heap_kb=auth_heap_kb,
             bytes_sent=total_bytes_sent,
             bytes_received=total_bytes_received,
             http_status=target_res.http_status if not auth_error else (secret_res.status_code or login_res.status_code),
-            is_cold_start=False,
+            auth_http_requests=auth_http_requests,
+            target_http_requests=target_http_requests,
+            total_http_requests=total_http_requests,
+            is_cold_start=(os.environ.get("IS_COLD_START", "false").lower() in ["true", "1"]) and (iteration == 1),
             error_flag=final_error,
         )
 
