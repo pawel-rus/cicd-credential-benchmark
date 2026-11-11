@@ -136,6 +136,57 @@ def print_micro_summary(master_micro_file: str):
         print(f"{strat:<16} | {scen:<16} | {conc:<5} | {cnt:<8} | {avg_login:<11} | {avg_gen:<10} | {avg_auth:<11} | {avg_target:<11} | {d['errors']:<6}")
     print("=" * 115 + "\n")
 
+def print_lifecycle_breakdown(master_micro_file: str):
+    """
+    Prints a targeted comparison of Phase 1 (Initial Acquisition) vs
+    Phase 2 (Lifecycle Renewal / Secondary Reuse) for the credential_lifecycle scenario.
+    """
+    if not os.path.isfile(master_micro_file):
+        return
+
+    lifecycle_stats = defaultdict(lambda: {
+        "p1_auth": [],
+        "p2_auth": [],
+        "p1_target": [],
+        "p2_target": [],
+    })
+
+    with open(master_micro_file, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            scen = r.get("scenario", "")
+            if scen in ["credential_lifecycle", "lifecycle", "high_freq"]:
+                strat = r.get("strategy", "unknown")
+                it = r.get("iteration", "1")
+                try:
+                    auth_ms = float(r.get("auth_time_ms", 0.0) or 0.0)
+                    target_ms = float(r.get("target_call_time_ms", 0.0) or 0.0)
+                    if it == "1":
+                        lifecycle_stats[strat]["p1_auth"].append(auth_ms)
+                        lifecycle_stats[strat]["p1_target"].append(target_ms)
+                    elif it == "2":
+                        lifecycle_stats[strat]["p2_auth"].append(auth_ms)
+                        lifecycle_stats[strat]["p2_target"].append(target_ms)
+                except (ValueError, TypeError):
+                    pass
+
+    has_data = any(d["p1_auth"] and d["p2_auth"] for d in lifecycle_stats.values())
+    if has_data:
+        print("=" * 115)
+        print("CREDENTIAL LIFECYCLE BREAKDOWN: Phase 1 (Initial Handshake) vs Phase 2 (Mid-Job Renewal / Reuse)")
+        print("=" * 115)
+        print(f"{'Strategy':<18} | {'Phase 1 Auth (ms)':<18} | {'Phase 2 Auth (ms)':<18} | {'Delta Auth (ms)':<16} | {'Speedup / Amortization':<22}")
+        print("-" * 115)
+        for strat, d in sorted(lifecycle_stats.items()):
+            if d["p1_auth"] and d["p2_auth"]:
+                avg_p1 = sum(d["p1_auth"]) / len(d["p1_auth"])
+                avg_p2 = sum(d["p2_auth"]) / len(d["p2_auth"])
+                delta = avg_p1 - avg_p2
+                speedup_pct = ((avg_p1 - avg_p2) / avg_p1 * 100.0) if avg_p1 > 0 else 0.0
+                ratio_str = f"{round(speedup_pct, 1)}% faster" if delta > 0 else (f"{round(abs(speedup_pct), 1)}% slower" if delta < 0 else "0.0% (parity)")
+                print(f"{strat:<18} | {round(avg_p1, 3):<18} | {round(avg_p2, 3):<18} | {round(delta, 3):<16} | {ratio_str:<22}")
+        print("=" * 115 + "\n")
+
 def main():
     parser = argparse.ArgumentParser(description="Merge Fragmented Benchmarking CSVs into Master Tidy Tables (v2.1)")
     parser.add_argument("--results-dir", default=os.path.abspath("./results"), help="Base results directory")
@@ -151,6 +202,7 @@ def main():
     print("[*] Consolidating micro-benchmarks...")
     merge_csv_directory(micro_dir, master_micro_csv)
     print_micro_summary(master_micro_csv)
+    print_lifecycle_breakdown(master_micro_csv)
 
     print("[*] Consolidating macro-telemetry...")
     merge_csv_directory(macro_dir, master_macro_csv)

@@ -50,13 +50,15 @@ class GitLabController:
         self.headers = {"PRIVATE-TOKEN": token} if token else {}
 
     def trigger_pipeline(self, strategy: str, scenario: str, concurrency: int,
-                         iterations: int, test_run_id: str, is_cold_start: bool = False, branch: str = "main", max_retries: int = 3) -> int:
+                         iterations: int, test_run_id: str, is_cold_start: bool = False,
+                         lifecycle_delay: float = 5.0, branch: str = "main", max_retries: int = 3) -> int:
         url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipeline"
         variables = [
             {"key": "AUTH_STRATEGY", "value": strategy},
             {"key": "SCENARIO", "value": scenario},
             {"key": "CONCURRENCY_LEVEL", "value": str(concurrency)},
             {"key": "ITERATIONS", "value": str(iterations)},
+            {"key": "LIFECYCLE_DELAY", "value": str(lifecycle_delay)},
             {"key": "TEST_RUN_ID", "value": test_run_id},
             {"key": "IS_COLD_START", "value": "true" if is_cold_start else "false"},
         ]
@@ -228,7 +230,8 @@ def save_macro_metric(file_path: str, record: dict):
 # =====================================================================
 def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
                    strategy: str, scenario: str, concurrency: int,
-                   iterations: int, results_dir: str, branch: str = "main", invalidate_cache: bool = True):
+                   iterations: int, results_dir: str, branch: str = "main",
+                   invalidate_cache: bool = True, lifecycle_delay: float = 5.0):
     timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     strategy_slug_map = {
         "STATIC_BASELINE": "static",
@@ -246,10 +249,10 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
 
     print(f"\n=======================================================================")
     print(f"[*] Starting Experiment: {test_run_id}")
-    print(f"    Strategy: {strategy} | Scenario: {scenario} | Concurrency: {concurrency} | Iterations: {iterations}")
+    print(f"    Strategy: {strategy} | Scenario: {scenario} | Concurrency: {concurrency} | Iterations: {iterations} | Delay: {lifecycle_delay}s")
     print(f"=======================================================================")
 
-    if invalidate_cache and scenario in ["baseline", "high_freq"]:
+    if invalidate_cache and scenario in ["baseline", "credential_lifecycle", "lifecycle", "high_freq"]:
         invalidate_jwks_cache(strategy)
 
     t_start = time.time()
@@ -261,6 +264,7 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
             iterations=iterations,
             test_run_id=test_run_id,
             is_cold_start=invalidate_cache,
+            lifecycle_delay=lifecycle_delay,
             branch=branch,
         )
         print(f"    -> Pipeline #{pipeline_id} dispatched. Awaiting completion...")
@@ -316,9 +320,10 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
 # =====================================================================
 def main():
     parser = argparse.ArgumentParser(description="CI/CD Credential Benchmark Orchestrator (v2.3)")
-    parser.add_argument("--scenario", default="baseline", choices=["baseline", "high_freq", "thundering_herd", "all"])
+    parser.add_argument("--scenario", default="baseline", choices=["baseline", "credential_lifecycle", "lifecycle", "high_freq", "thundering_herd", "all"])
     parser.add_argument("--strategy", default="all", choices=ALL_STRATEGIES + ["all", "VAULT_APPROLE", "VAULT_OIDC", "VAULT_DYNAMIC", "VAULT_KV", "VAULT_STATIC"])
     parser.add_argument("--concurrencies", nargs="+", type=int, default=[10, 25, 50], help="Concurrency levels for thundering herd")
+    parser.add_argument("--lifecycle-delay", type=float, default=5.0, help="Delay in seconds between phases in lifecycle scenario")
     parser.add_argument("--gitlab-url", default=GITLAB_URL)
     parser.add_argument("--prometheus-url", default=PROMETHEUS_URL)
     parser.add_argument("--project-id", default=PROJECT_ID)
@@ -348,12 +353,13 @@ def main():
                 if args.cooldown > 0:
                     time.sleep(args.cooldown)
 
-    if args.scenario in ["high_freq", "all"]:
+    if args.scenario in ["credential_lifecycle", "lifecycle", "high_freq", "all"]:
+        scen_name = "credential_lifecycle" if args.scenario != "high_freq" else "high_freq"
         for strat in strategies:
             for run_idx in range(1, args.runs + 1):
                 if args.runs > 1:
-                    print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} (high_freq) <<<")
-                run_experiment(gitlab, prom, strategy=strat, scenario="high_freq", concurrency=1, iterations=100, results_dir=args.results_dir, branch=args.branch, invalidate_cache=(run_idx == 1))
+                    print(f"\n>>> [Batch Progress] Repeat {run_idx}/{args.runs} for {strat} ({scen_name}) <<<")
+                run_experiment(gitlab, prom, strategy=strat, scenario=scen_name, concurrency=1, iterations=2, results_dir=args.results_dir, branch=args.branch, invalidate_cache=(run_idx == 1), lifecycle_delay=args.lifecycle_delay)
                 if args.cooldown > 0:
                     time.sleep(args.cooldown)
 

@@ -13,6 +13,7 @@ variables:
     value: "baseline"
     options:
       - "baseline"
+      - "credential_lifecycle"
       - "high_freq"
       - "thundering_herd"
       - "real_world"
@@ -26,6 +27,9 @@ variables:
   ITERATIONS:
     value: "1"
     description: "Number of loop repetitions inside worker job"
+  LIFECYCLE_DELAY:
+    value: "5"
+    description: "Delay in seconds between initial acquisition and secondary lifecycle operation (credential_lifecycle)"
 
 stages:
   - execute-benchmarks

@@ -47,6 +47,10 @@ def run_benchmark(args):
     secret_key_name = args.secret_key_env
 
     for iteration in range(1, args.iterations + 1):
+        if iteration > 1 and args.lifecycle_delay > 0 and args.scenario in ["credential_lifecycle", "lifecycle", "high_freq"]:
+            print(f"[bench_static] Simulating workload delay between phases ({args.lifecycle_delay}s)...")
+            time.sleep(args.lifecycle_delay)
+
         timestamp = datetime.now(timezone.utc).isoformat()
         usage_start = resource.getrusage(resource.RUSAGE_SELF)
 
@@ -133,9 +137,10 @@ def run_benchmark(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Micro-benchmark: Static Secrets Baseline")
     parser.add_argument("--test-run-id", default="manual_run", help="Unique identifier for the test suite run")
-    parser.add_argument("--scenario", default="baseline", choices=["baseline", "high_freq", "thundering_herd", "real_world"])
+    parser.add_argument("--scenario", default="baseline", choices=["baseline", "credential_lifecycle", "lifecycle", "high_freq", "thundering_herd", "real_world"])
     parser.add_argument("--concurrency", type=int, default=1, help="Level of job concurrency")
     parser.add_argument("--iterations", type=int, default=1, help="Number of repetitions inside this worker")
+    parser.add_argument("--lifecycle-delay", type=float, default=5.0, help="Delay in seconds between phases in lifecycle scenario")
     parser.add_argument("--minio-endpoint", default=os.environ.get("MINIO_ENDPOINT", "http://minio:9000"))
     parser.add_argument("--access-key-env", default="MINIO_ACCESS_KEY")
     parser.add_argument("--secret-key-env", default="MINIO_SECRET_KEY")

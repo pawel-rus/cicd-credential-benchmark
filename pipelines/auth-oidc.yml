@@ -24,14 +24,14 @@ oidc-baseline:
     - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "baseline" --concurrency 1 --iterations ${ITERATIONS:-1} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 # ---------------------------------------------------------------------
-# 2. High-Frequency Scenario (N=100 in loop inside single job)
+# 2. Credential Lifecycle Scenario (Phase 1 Init -> Delay -> Phase 2 Renewal/Reuse)
 # ---------------------------------------------------------------------
-oidc-high-frequency:
+oidc-lifecycle:
   extends: .oidc-base
   rules:
-    - if: '$SCENARIO == "high_freq"'
+    - if: '$SCENARIO == "credential_lifecycle" || $SCENARIO == "lifecycle" || $SCENARIO == "high_freq"'
   script:
-    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "high_freq" --concurrency 1 --iterations ${ITERATIONS:-100} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+    - 'python3 "$BENCH_DIR/bench_oidc.py" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "${SCENARIO:-credential_lifecycle}" --concurrency 1 --iterations ${ITERATIONS:-2} --lifecycle-delay ${LIFECYCLE_DELAY:-5} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 # ---------------------------------------------------------------------
 # 3. Thundering Herd Scenario (Concurrency 10 / 25 / 50)

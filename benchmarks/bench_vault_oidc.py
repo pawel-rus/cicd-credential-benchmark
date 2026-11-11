@@ -84,7 +84,14 @@ def run_benchmark(args):
         dynamic_path = f"v1/{dynamic_path}"
     dynamic_endpoint = urllib.parse.urljoin(args.vault_url, f"/{dynamic_path}")
 
+    cached_client_token = None
+    login_error = False
+
     for iteration in range(1, args.iterations + 1):
+        if iteration > 1 and args.lifecycle_delay > 0 and args.scenario in ["credential_lifecycle", "lifecycle", "high_freq"]:
+            print(f"[bench_vault_oidc] Simulating workload delay between phases ({args.lifecycle_delay}s)...")
+            time.sleep(args.lifecycle_delay)
+
         timestamp = datetime.now(timezone.utc).isoformat()
         usage_start = resource.getrusage(resource.RUSAGE_SELF)
 
@@ -93,26 +100,43 @@ def run_benchmark(args):
         # -------------------------------------------------------------
         auth_http_requests = 0
         tracemalloc.start()
-        t_login_start = time.perf_counter_ns()
-        login_payload = json.dumps({"role": args.vault_jwt_role, "jwt": jwt_token}).encode("utf-8")
-        login_headers = {"Content-Type": "application/json"}
-        login_res = execute_raw_http_request("POST", login_endpoint, headers=login_headers, body=login_payload)
-        auth_http_requests += 1
-        t_login_end = time.perf_counter_ns()
-        auth_login_ms = (t_login_end - t_login_start) / 1_000_000.0
 
-        client_token = ""
-        login_error = login_res.error_flag
-        try:
-            login_data = json.loads(login_res.body.decode("utf-8"))
-            client_token = login_data.get("auth", {}).get("client_token", "")
-            if not client_token:
+        should_reuse_token = (
+            cached_client_token is not None
+            and not login_error
+            and (args.scenario in ["credential_lifecycle", "lifecycle", "high_freq"])
+        )
+
+        if should_reuse_token:
+            # Lifecycle Phase 2: In-memory session token reuse (skip JWT login)
+            client_token = cached_client_token
+            auth_login_ms = 0.0
+            login_error = False
+            print("[bench_vault_oidc] Phase 2: Reusing existing Vault client session token (skipping JWT login).")
+        else:
+            t_login_start = time.perf_counter_ns()
+            login_payload = json.dumps({"role": args.vault_jwt_role, "jwt": jwt_token}).encode("utf-8")
+            login_headers = {"Content-Type": "application/json"}
+            login_res = execute_raw_http_request("POST", login_endpoint, headers=login_headers, body=login_payload)
+            auth_http_requests += 1
+            t_login_end = time.perf_counter_ns()
+            auth_login_ms = (t_login_end - t_login_start) / 1_000_000.0
+
+            client_token = ""
+            login_error = login_res.error_flag
+            try:
+                login_data = json.loads(login_res.body.decode("utf-8"))
+                client_token = login_data.get("auth", {}).get("client_token", "")
+                if not client_token:
+                    login_error = True
+            except Exception:
                 login_error = True
-        except Exception:
-            login_error = True
 
-        if login_error:
-            print(f"[bench_vault_oidc] WARNING: Vault authentication failed (HTTP {login_res.status_code}): {login_res.body.decode('utf-8', errors='replace')[:150]}", file=sys.stderr)
+            if not login_error:
+                cached_client_token = client_token
+
+            if login_error:
+                print(f"[bench_vault_oidc] WARNING: Vault authentication failed (HTTP {login_res.status_code}): {login_res.body.decode('utf-8', errors='replace')[:150]}", file=sys.stderr)
 
         # -------------------------------------------------------------
         # STEP 1B: DYNAMIC CREDENTIAL GENERATION (GET /v1/aws/sts/...)
@@ -200,9 +224,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Micro-benchmark: HashiCorp Vault Dynamic STS (JWT + STS)")
     parser.add_argument("--strategy", default="VAULT_DYNAMIC_STS", help="Strategy identifier (VAULT_DYNAMIC_STS or VAULT_OIDC)")
     parser.add_argument("--test-run-id", default="manual_run")
-    parser.add_argument("--scenario", default="baseline", choices=["baseline", "high_freq", "thundering_herd", "real_world"])
+    parser.add_argument("--scenario", default="baseline", choices=["baseline", "credential_lifecycle", "lifecycle", "high_freq", "thundering_herd", "real_world"])
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--iterations", type=int, default=1)
+    parser.add_argument("--lifecycle-delay", type=float, default=5.0, help="Delay in seconds between phases in lifecycle scenario")
     parser.add_argument("--vault-url", default=os.environ.get("VAULT_ADDR", "http://vault:8200"))
     parser.add_argument("--jwt-env", default="VAULT_OIDC_TOKEN")
     parser.add_argument("--vault-jwt-role", default="gitlab-ci")
