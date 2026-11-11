@@ -76,7 +76,7 @@ class MicroMetricRecord:
 # =====================================================================
 # THUNDERING HERD SYNCHRONIZATION BARRIER (/dev/shm)
 # =====================================================================
-def synchronize_thundering_herd_barrier(pipeline_id: str, concurrency_level: int, timeout_sec: float = 25.0) -> None:
+def synchronize_thundering_herd_barrier(pipeline_id: str, concurrency_level: int, timeout_sec: float = 45.0) -> None:
     """
     RAM-based synchronization barrier (/dev/shm) for the Thundering Herd scenario.
     Guarantees that all N concurrent worker processes wait until all workers are spawned
