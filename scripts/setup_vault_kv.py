@@ -98,7 +98,7 @@ def setup():
     else:
         print(f"[!] Could not read back secret: {r_res}")
 
-    # 5. Update/create policies to permit KV read
+    # 5. Update/create policies to permit KV read across all policies & roles
     kv_policy_hcl = """
 path "secret/data/ci/*" {
   capabilities = ["read", "list"]
@@ -113,18 +113,50 @@ path "aws/sts/*" {
   capabilities = ["read", "create", "update"]
 }
 """
-    # Check existing policies: gitlab-ci, gitlab-runner, default
-    for pol_name in ["gitlab-ci", "gitlab-runner", "gitlab-runner-policy", "benchmark-policy"]:
+    # 5a. Retrieve all existing policies from Vault
+    pol_list_status, pol_list_res = vault_request("GET", "sys/policy")
+    existing_policies = ["default", "gitlab-ci", "gitlab-runner", "gitlab-runner-policy", "benchmark-policy"]
+    if pol_list_status == 200:
+        keys = pol_list_res.get("data", {}).get("keys", []) or pol_list_res.get("policies", [])
+        if keys:
+            existing_policies = list(set(existing_policies + keys))
+
+    for pol_name in existing_policies:
         p_status, p_res = vault_request("GET", f"sys/policy/{pol_name}")
         existing_rules = ""
         if p_status == 200:
             existing_rules = p_res.get("rules", "") or p_res.get("data", {}).get("rules", "")
 
-        combined_policy = existing_rules + "\n" + kv_policy_hcl
-        pol_payload = {"policy": combined_policy}
-        up_status, up_res = vault_request("PUT", f"sys/policy/{pol_name}", pol_payload)
-        if up_status in [200, 204]:
-            print(f"[+] Updated ACL policy '{pol_name}' with KV read capabilities.")
+        if "secret/data/ci/*" not in existing_rules:
+            combined_policy = existing_rules.strip() + "\n" + kv_policy_hcl.strip() + "\n"
+            pol_payload = {"policy": combined_policy}
+            up_status, up_res = vault_request("PUT", f"sys/policy/{pol_name}", pol_payload)
+            if up_status in [200, 204]:
+                print(f"[+] Updated ACL policy '{pol_name}' with KV read capabilities.")
+        else:
+            print(f"[+] ACL policy '{pol_name}' already contains KV read capabilities.")
+
+    # 5b. Update JWT roles to ensure policies are attached
+    role_list_status, role_list_res = vault_request("GET", "auth/jwt/role?list=true")
+    jwt_roles = ["gitlab-ci", "gitlab-runner"]
+    if role_list_status == 200:
+        r_keys = role_list_res.get("data", {}).get("keys", [])
+        if r_keys:
+            jwt_roles = list(set(jwt_roles + r_keys))
+
+    for r_name in jwt_roles:
+        r_get_status, r_get_res = vault_request("GET", f"auth/jwt/role/{r_name}")
+        if r_get_status == 200:
+            r_data = r_get_res.get("data", {})
+            current_pols = r_data.get("token_policies", []) or r_data.get("policies", [])
+            needed = ["gitlab-ci", "default"]
+            new_pols = list(set(current_pols + needed))
+            if set(new_pols) != set(current_pols):
+                r_data["token_policies"] = new_pols
+                r_data["policies"] = new_pols
+                post_status, post_res = vault_request("POST", f"auth/jwt/role/{r_name}", r_data)
+                if post_status in [200, 204]:
+                    print(f"[+] Attached policies {new_pols} to JWT role '{r_name}'.")
 
     print("\n[✓] Vault KV configuration completed successfully for VAULT_STATIC_KV benchmark!")
     return True
