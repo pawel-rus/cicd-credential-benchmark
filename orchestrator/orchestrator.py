@@ -75,9 +75,10 @@ class GitLabController:
                 print(f"    [!] Warning: Pipeline dispatch attempt {attempt} failed ({e}). Retrying in 5s...", file=sys.stderr)
                 time.sleep(5)
 
-    def wait_for_pipeline(self, pipeline_id: int, poll_interval: float = 3.0) -> tuple[str, int]:
+    def wait_for_pipeline(self, pipeline_id: int, poll_interval: float = 3.0, max_wait_sec: float = 300.0) -> tuple[str, int]:
         url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipelines/{pipeline_id}"
         jobs_url = f"{self.base_url}/api/v4/projects/{self.project_id}/pipelines/{pipeline_id}/jobs"
+        t_wait_start = time.time()
 
         while True:
             res = requests.get(url, headers=self.headers, timeout=60)
@@ -95,6 +96,14 @@ class GitLabController:
                 except Exception:
                     pass
                 return status, failed_count
+
+            if time.time() - t_wait_start > max_wait_sec:
+                print(f"    [!] Warning: Pipeline #{pipeline_id} timed out after {max_wait_sec}s. Canceling in GitLab...", file=sys.stderr)
+                try:
+                    requests.post(f"{url}/cancel", headers=self.headers, timeout=10)
+                except Exception:
+                    pass
+                return "timeout", 1
 
             time.sleep(poll_interval)
 
@@ -247,9 +256,10 @@ def run_experiment(gitlab: GitLabController, prom: PrometheusCollector,
     strategy_slug = strategy_slug_map.get(strategy.upper(), strategy.lower())
     test_run_id = f"run_{strategy_slug}_{scenario}_c{concurrency}_{timestamp_str}"
 
+    delay_str = f" | Delay: {lifecycle_delay}s" if scenario in ["credential_lifecycle", "lifecycle"] else ""
     print(f"\n=======================================================================")
     print(f"[*] Starting Experiment: {test_run_id}")
-    print(f"    Strategy: {strategy} | Scenario: {scenario} | Concurrency: {concurrency} | Iterations: {iterations} | Delay: {lifecycle_delay}s")
+    print(f"    Strategy: {strategy} | Scenario: {scenario} | Concurrency: {concurrency} | Iterations: {iterations}{delay_str}")
     print(f"=======================================================================")
 
     if invalidate_cache and scenario in ["baseline", "credential_lifecycle", "lifecycle", "high_freq"]:

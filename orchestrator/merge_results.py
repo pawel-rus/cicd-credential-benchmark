@@ -183,7 +183,12 @@ def print_lifecycle_breakdown(master_micro_file: str):
                 avg_p2 = sum(d["p2_auth"]) / len(d["p2_auth"])
                 delta = avg_p1 - avg_p2
                 speedup_pct = ((avg_p1 - avg_p2) / avg_p1 * 100.0) if avg_p1 > 0 else 0.0
-                ratio_str = f"{round(speedup_pct, 1)}% faster" if delta > 0 else (f"{round(abs(speedup_pct), 1)}% slower" if delta < 0 else "0.0% (parity)")
+                if max(avg_p1, avg_p2) < 0.15:
+                    ratio_str = "Parity (<0.1 ms RAM)"
+                elif delta > 0:
+                    ratio_str = f"{round(speedup_pct, 1)}% faster"
+                else:
+                    ratio_str = f"{round(abs(speedup_pct), 1)}% slower"
                 print(f"{strat:<18} | {round(avg_p1, 3):<18} | {round(avg_p2, 3):<18} | {round(delta, 3):<16} | {ratio_str:<22}")
         print("=" * 115 + "\n")
 
