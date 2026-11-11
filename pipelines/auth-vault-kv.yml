@@ -34,8 +34,16 @@ vault-kv-lifecycle:
     - 'python3 "$BENCH_DIR/bench_vault_kv.py" --strategy "${AUTH_STRATEGY:-VAULT_STATIC_KV}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "${SCENARIO:-credential_lifecycle}" --concurrency 1 --iterations ${ITERATIONS:-2} --lifecycle-delay ${LIFECYCLE_DELAY:-5} --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 # ---------------------------------------------------------------------
-# 3. Thundering Herd Scenario (Concurrency 10 / 25 / 50)
+# 3. Thundering Herd Scenario (Concurrency 5 / 10 / 20 / 25 / 40 / 50)
 # ---------------------------------------------------------------------
+vault-kv-thundering-herd-5:
+  extends: .vault-kv-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "5"'
+  parallel: 5
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_kv.py" --strategy "${AUTH_STRATEGY:-VAULT_STATIC_KV}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 5 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
 vault-kv-thundering-herd-10:
   extends: .vault-kv-base
   rules:
@@ -44,6 +52,14 @@ vault-kv-thundering-herd-10:
   script:
     - 'python3 "$BENCH_DIR/bench_vault_kv.py" --strategy "${AUTH_STRATEGY:-VAULT_STATIC_KV}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 10 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
+vault-kv-thundering-herd-20:
+  extends: .vault-kv-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "20"'
+  parallel: 20
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_kv.py" --strategy "${AUTH_STRATEGY:-VAULT_STATIC_KV}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 20 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
 vault-kv-thundering-herd-25:
   extends: .vault-kv-base
   rules:
@@ -51,6 +67,14 @@ vault-kv-thundering-herd-25:
   parallel: 25
   script:
     - 'python3 "$BENCH_DIR/bench_vault_kv.py" --strategy "${AUTH_STRATEGY:-VAULT_STATIC_KV}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 25 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
+
+vault-kv-thundering-herd-40:
+  extends: .vault-kv-base
+  rules:
+    - if: '$SCENARIO == "thundering_herd" && $CONCURRENCY_LEVEL == "40"'
+  parallel: 40
+  script:
+    - 'python3 "$BENCH_DIR/bench_vault_kv.py" --strategy "${AUTH_STRATEGY:-VAULT_STATIC_KV}" --test-run-id "${TEST_RUN_ID:-manual_run}" --scenario "thundering_herd" --concurrency 40 --iterations 1 --pipeline-id "$CI_PIPELINE_ID" --job-id "$CI_JOB_ID"'
 
 vault-kv-thundering-herd-50:
   extends: .vault-kv-base
